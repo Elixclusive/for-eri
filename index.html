@@ -58,7 +58,7 @@
     }
 
     /* keeps the content on top of the floating background hearts */
-    body > *:not(#bg):not(.fl):not(script):not(#popup):not(#intro):not(#gate) {
+    body > *:not(#bg):not(.fl):not(script):not(#popup):not(#intro):not(#gate):not(#dialog):not(#confetti):not(#sad) {
       position: relative;
       z-index: 1;
     }
@@ -331,6 +331,11 @@
       color: var(--text);
     }
 
+    .back:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* ---------- the BIG "I love you" last page ---------- */
     #bigtext {
       display: none;
@@ -539,6 +544,80 @@
       100% { opacity: 0; }
     }
 
+    /* ---------- the yes / no buttons after "court you?" ---------- */
+    #choice {
+      display: none;
+      justify-content: center;
+      gap: 12px;
+      margin: 0 0 18px;
+    }
+
+    /* ---------- the "really?" / "last decision" pop-ups ---------- */
+    #dialog {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.55);
+      align-items: center;
+      justify-content: center;
+    }
+
+    #dialog.show {
+      display: flex;
+      animation: fadein 0.3s ease;
+    }
+
+    .dbox {
+      width: 100%;
+      max-width: 380px;
+      padding: 28px 24px;
+      background: var(--card);
+      border: 2px solid var(--accent);
+      border-radius: 16px;
+    }
+
+    .dpop {
+      animation: popin 0.45s cubic-bezier(0.2, 1.3, 0.4, 1);
+    }
+
+    #dtext {
+      margin: 0 0 20px;
+      font-size: clamp(1.5rem, 6vw, 2rem);
+      line-height: 1.3;
+      color: var(--accent);
+      white-space: pre-wrap;
+    }
+
+    #dbtns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    /* ---------- confetti (sits on top of everything) ---------- */
+    #confetti {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      pointer-events: none;
+    }
+
+    /* ---------- the sad face ending ---------- */
+    #sad {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg);
+      font-size: clamp(7rem, 40vw, 12rem);
+      animation: fadein 1.2s ease;
+    }
+
     /* ---------- name gate (password) ---------- */
     #gate {
       display: none;
@@ -686,6 +765,12 @@
         <button class="b yes hide" id="sbtn"></button>
       </div>
 
+      <!-- the yes / no answer after "may I court you?" -->
+      <div id="choice">
+        <button class="b yes" id="cyes"></button>
+        <button class="b back" id="cno"></button>
+      </div>
+
       <p id="pagenum" class="hide"></p>
 
       <div class="popbtns">
@@ -696,6 +781,17 @@
     <div id="flash"></div>
   </div>
 
+  <!-- "really?" / "last decision" / "I love you" pop-ups -->
+  <div id="dialog">
+    <div class="dbox" id="dialogbox">
+      <p id="dtext"></p>
+      <div id="dbtns"></div>
+    </div>
+  </div>
+
+  <!-- confetti -->
+  <canvas id="confetti"></canvas>
+
   <script>
     /* =====================================================
        THINGS YOU CAN EDIT
@@ -705,8 +801,8 @@
     var INTRO_TIME = 10000;   // how long the loading screen lasts (ms) = 10 seconds
     var INTRO_MSGS = [
       "pinapainit ang puso ko...",
-      "inaayos ang mga hearts...",
-      "konting hintay lang, babi...",
+      "inaayos lang mga hearts...",
+      "konting hintay lang, my babi...",
       "malapit na, para sayo to 💕"
     ];
 
@@ -815,6 +911,18 @@
     var SURPRISE_READY = "ready ka na ba, babi?";
     var SURPRISE_BUTTON = "oo, ready na ako 💖";
 
+    // HER ANSWER: the buttons that show after "may I court you?"
+    var COURT_YES = "Of course, my babi! 💖";                     // yes = confetti only
+    var COURT_NO = "wait, kinakabahan ako!";                          // no = goes to the "really?" pop-up
+    var REALLY_TEXT = "pero what are the chances na yes?";                  // 1st pop-up (after she picks no)
+    var REALLY_BUTTON = "wait langgg!! kinikilig akoo!";       // the button on the "really?" pop-up
+    var LAST_TEXT = "HAHAHAHAHA SORRY BABI, SIGE LAST NA\nYes or No?";  // 2nd pop-up
+    var LAST_YES = "yes";                         // yes = confetti + the "I love you" pop-up
+    var LAST_NO = "no";                           // no = everything disappears + sad face
+    var LOVE_TEXT = "I love you 💖";              // the "I love you" pop-up
+    var LOVE_CLOSE = "💕";                        // the button that closes it
+    var SAD_FACE = "😢";                          // the sad face at the end
+
     // HOW SLOW THE WORDS TYPE (like you are talking)
     var TYPE_SPEED = 70;      // time between each letter in milliseconds (bigger number = slower)
     var PAUSE_SPEED = 400;    // extra pause after a comma, period, or question mark
@@ -840,6 +948,13 @@
     var tapHint = document.getElementById("taphint");
     var tapButton = document.getElementById("tapbtn");
     var tapCount = document.getElementById("tapcount");
+    var choiceBox = document.getElementById("choice");
+    var choiceYes = document.getElementById("cyes");
+    var choiceNo = document.getElementById("cno");
+    var dialogBox = document.getElementById("dialog");
+    var dialogInner = document.getElementById("dialogbox");
+    var dialogText = document.getElementById("dtext");
+    var dialogButtons = document.getElementById("dbtns");
 
     var heartsOpened = 0;
     var extraPages = [];          // pages 2 and 3 go in here
@@ -895,6 +1010,96 @@
         setTimeout(function (el) {
           el.remove();
         }, 4000, heart);
+      }
+    }
+
+
+    // ----- confetti -----
+    var confettiCanvas = document.getElementById("confetti");
+    var confettiCtx = confettiCanvas.getContext("2d");
+    var confettiBits = [];          // all the little paper pieces
+    var confettiRunning = false;
+    var confettiColors = ["#e63e6d", "#ff6b92", "#ffd3de", "#ffd166", "#06d6a0", "#4cc9f0", "#b388ff", "#ffffff"];
+
+    // adds a bunch of pieces that shoot out from one spot
+    // angles are in degrees: 90 = straight up, 0 = right, 180 = left
+    function addConfetti(count, x, y, minAngle, maxAngle, minSpeed, maxSpeed) {
+      for (var i = 0; i < count; i++) {
+        var angle = (minAngle + Math.random() * (maxAngle - minAngle)) * Math.PI / 180;
+        var speed = minSpeed + Math.random() * (maxSpeed - minSpeed);
+
+        confettiBits.push({
+          x: x,
+          y: y,
+          vx: Math.cos(angle) * speed,
+          vy: -Math.sin(angle) * speed,
+          size: 6 + Math.random() * 7,
+          color: confettiColors[Math.floor(Math.random() * confettiColors.length)],
+          rot: Math.random() * 360,
+          spin: (Math.random() - 0.5) * 20,
+          tilt: Math.random() * Math.PI * 2,
+          tiltSpeed: 0.1 + Math.random() * 0.2
+        });
+      }
+    }
+
+    // moves and draws every piece, over and over, until they all fall off the screen
+    function confettiLoop() {
+      confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+
+      confettiBits.forEach(function (bit) {
+        bit.vx *= 0.99;
+        bit.vy = bit.vy * 0.99 + 0.35;   // gravity pulls it down
+        bit.x += bit.vx;
+        bit.y += bit.vy;
+        bit.rot += bit.spin;
+        bit.tilt += bit.tiltSpeed;
+
+        confettiCtx.save();
+        confettiCtx.translate(bit.x, bit.y);
+        confettiCtx.rotate(bit.rot * Math.PI / 180);
+        confettiCtx.scale(1, Math.cos(bit.tilt));   // makes it flutter
+        confettiCtx.fillStyle = bit.color;
+        confettiCtx.fillRect(-bit.size / 2, -bit.size / 4, bit.size, bit.size / 2);
+        confettiCtx.restore();
+      });
+
+      // remove the pieces that fell off the bottom
+      confettiBits = confettiBits.filter(function (bit) {
+        return bit.y < confettiCanvas.height + 40;
+      });
+
+      if (confettiBits.length > 0) {
+        requestAnimationFrame(confettiLoop);
+      } else {
+        confettiRunning = false;
+        confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+      }
+    }
+
+    // pops the confetti!
+    function fireConfetti() {
+      var w = window.innerWidth;
+      var h = window.innerHeight;
+      var power = h / 40;   // bigger screen = stronger shots
+
+      confettiCanvas.width = w;
+      confettiCanvas.height = h;
+
+      // 1st shot: from the two bottom corners + a pop in the middle
+      addConfetti(80, 0, h, 50, 85, power * 0.6, power * 1.1);
+      addConfetti(80, w, h, 95, 130, power * 0.6, power * 1.1);
+      addConfetti(90, w / 2, h * 0.45, 0, 360, power * 0.3, power * 0.7);
+
+      // 2nd shot, a little later
+      setTimeout(function () {
+        addConfetti(70, 0, h, 50, 85, power * 0.6, power * 1.1);
+        addConfetti(70, w, h, 95, 130, power * 0.6, power * 1.1);
+      }, 350);
+
+      if (!confettiRunning) {
+        confettiRunning = true;
+        requestAnimationFrame(confettiLoop);
       }
     }
 
@@ -1191,12 +1396,109 @@
         // reveal while the flash fades
         setTimeout(function () {
           bigText.classList.add("grand");
+
+          // after "court you?" is typed, the yes / no buttons show up
           typeText(REVEAL_START + "...\n", REVEAL_END, function () {
             shootHearts(40);
+            showCourtChoice();
           }, REVEAL_TYPE_SPEED);
         }, 900);
       };
     }
+
+
+    // ----- her answer: yes / no -----
+
+    // shows the yes / no buttons under "court you?"
+    function showCourtChoice() {
+      choiceYes.textContent = COURT_YES;
+      choiceNo.textContent = COURT_NO;
+      choiceYes.disabled = false;
+      choiceNo.disabled = false;
+
+      choiceBox.style.display = "flex";
+      replay(choiceBox, "swap");
+    }
+
+    // greys out the yes / no buttons so she can't click them again
+    function lockCourtChoice() {
+      choiceYes.disabled = true;
+      choiceNo.disabled = true;
+    }
+
+    // opens a pop-up with some text and buttons
+    // buttons = a list like [ { label: "text", onClick: function () { ... } } ]
+    function openDialog(text, buttons) {
+      dialogText.textContent = text;
+      dialogButtons.innerHTML = "";
+
+      buttons.forEach(function (info) {
+        var button = document.createElement("button");
+        button.className = "b yes";
+        button.textContent = info.label;
+        button.onclick = info.onClick;
+        dialogButtons.appendChild(button);
+      });
+
+      dialogBox.classList.add("show");
+      replay(dialogInner, "dpop");
+    }
+
+    function closeDialog() {
+      dialogBox.classList.remove("show");
+    }
+
+    // everything disappears and only a sad face is left
+    function showSadFace() {
+      stopBigEffects();
+      clearTimeout(typeTimer);
+
+      // remove everything on the screen (but keep the script)
+      Array.from(document.body.children).forEach(function (el) {
+        if (el.tagName !== "SCRIPT") {
+          el.remove();
+        }
+      });
+
+      var sad = document.createElement("div");
+      sad.id = "sad";
+      sad.textContent = SAD_FACE;
+      document.body.appendChild(sad);
+    }
+
+    // 2nd pop-up: "last decision"
+    function showLastDecision() {
+      openDialog(LAST_TEXT, [
+        {
+          label: LAST_YES,
+          onClick: function () {
+            closeDialog();
+            lockCourtChoice();
+            fireConfetti();
+            openDialog(LOVE_TEXT, [
+              { label: LOVE_CLOSE, onClick: closeDialog }
+            ]);
+          }
+        },
+        {
+          label: LAST_NO,
+          onClick: showSadFace
+        }
+      ]);
+    }
+
+    // "yes" under "court you?" -> only confetti, nothing else
+    choiceYes.onclick = function () {
+      lockCourtChoice();
+      fireConfetti();
+    };
+
+    // "no" under "court you?" -> "really?" pop-up with one button
+    choiceNo.onclick = function () {
+      openDialog(REALLY_TEXT, [
+        { label: REALLY_BUTTON, onClick: showLastDecision }
+      ]);
+    };
 
 
     // ----- the pop-up note (one page or many pages) -----
